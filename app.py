@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 from sklearn.datasets import fetch_california_housing, load_iris
+from pycaret.regression import setup as setup_reg, compare_models as compare_reg, pull as pull_reg
+from pycaret.classification import setup as setup_cls, compare_models as compare_cls, pull as pull_cls
 
 # --- Tytuł ---
 st.markdown(
@@ -55,18 +57,39 @@ if not df.empty:
     n_unique = df[target_col].nunique()
 
     if pd.api.types.is_numeric_dtype(target_dtype):
-        if n_unique <= 10:  # <=10 różnych wartości = klasyfikacja
-            problem_type = "🧩 Problem klasyfikacji (wartości dyskretne)"
+        if n_unique <= 10:
+            problem_type = "klasyfikacja"
+            problem_desc = "🧩 Problem klasyfikacji (wartości dyskretne)"
         else:
-            problem_type = "🧮 Problem regresji (wartości ciągłe)"
+            problem_type = "regresja"
+            problem_desc = "🧮 Problem regresji (wartości ciągłe)"
     else:
-        problem_type = "🧩 Problem klasyfikacji (wartości kategoryczne)"
+        problem_type = "klasyfikacja"
+        problem_desc = "🧩 Problem klasyfikacji (wartości kategoryczne)"
 
-    # --- Wyświetlenie informacji ---
     st.subheader("📘 Rozpoznanie problemu")
-    st.info(f"Aplikacja rozpoznała, że to **{problem_type}**.")
+    st.info(f"Aplikacja rozpoznała, że to **{problem_desc}**.")
     st.write(f"🔢 Typ danych kolumny docelowej: `{target_dtype}`")
     st.write(f"🔹 Liczba unikalnych wartości: **{n_unique}**")
+
+    # --- AUTOMATYCZNY WYBÓR MODELU ---
+    if st.button("🚀 Uruchom automatyczny wybór najlepszego modelu"):
+        with st.spinner("Trwa porównywanie modeli... ⏳"):
+            if problem_type == "regresja":
+                setup_reg(df, target=target_col, session_id=123, verbose=False)
+                best_model = compare_reg()
+                results = pull_reg()
+            else:
+                setup_cls(df, target=target_col, session_id=123, verbose=False)
+                best_model = compare_cls()
+                results = pull_cls()
+
+        st.success("✅ Uczenie zakończone! Oto wyniki:")
+        st.write("### 🏆 Ranking modeli:")
+        st.dataframe(results)
+
+        st.write("### 🌟 Najlepszy model:")
+        st.write(best_model)
 
 else:
     st.info("👉 Wybierz dane, aby kontynuować.")
