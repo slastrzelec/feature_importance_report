@@ -13,7 +13,8 @@ st.markdown(
 # --- Sidebar: wybór danych ---
 data_source = st.sidebar.radio(
     "📊 Wybierz źródło danych:",
-    ["Dane przykładowe (regresja)", "Dane przykładowe (klasyfikacja)", "Wczytaj własny plik CSV"]
+    ["Dane przykładowe (regresja)", "Dane przykładowe (klasyfikacja)", "Wczytaj własny plik CSV"],
+    key="data_source_radio"
 )
 
 df = pd.DataFrame()
@@ -29,12 +30,12 @@ if data_source == "Dane przykładowe (regresja)":
 elif data_source == "Dane przykładowe (klasyfikacja)":
     iris = load_iris(as_frame=True)
     df = iris.frame
-    df["target"] = iris.target  # kolumna numeryczna (0,1,2)
+    df["target"] = iris.target
     dataset_name = "Iris 🌸"
     st.write("Wybrano dane przykładowe: **Iris**")
 
 elif data_source == "Wczytaj własny plik CSV":
-    uploaded_file = st.sidebar.file_uploader("📂 Wybierz plik CSV", type="csv")
+    uploaded_file = st.sidebar.file_uploader("📂 Wybierz plik CSV", type="csv", key="file_uploader_key")
     if uploaded_file is not None:
         df = pd.read_csv(uploaded_file)
         dataset_name = uploaded_file.name
@@ -48,7 +49,8 @@ if not df.empty:
     # --- Wybór kolumny docelowej ---
     target_col = st.sidebar.selectbox(
         "🎯 Wybierz kolumnę docelową (target)",
-        options=df.columns
+        options=df.columns,
+        key="target_selectbox"
     )
     st.write(f"**Wybrana kolumna docelowa:** `{target_col}`")
 
@@ -73,19 +75,19 @@ if not df.empty:
     st.write(f"🔹 Liczba unikalnych wartości: **{n_unique}**")
 
     # --- AUTOMATYCZNY WYBÓR MODELU ---
-    if st.button("🚀 Uruchom automatyczny wybór najlepszego modelu"):
+    if st.button("🚀 Uruchom automatyczny wybór najlepszego modelu", key="run_model_button"):
         with st.spinner("Trwa porównywanie modeli... ⏳"):
             if problem_type == "regresja":
-                setup_reg(df, target=target_col, session_id=123, verbose=False)
-                best_model = compare_reg()
+                setup_reg(df, target=target_col, session_id=123, verbose=False, use_gpu=False, n_jobs=1)
+                best_model = compare_reg(n_select=3)
                 results = pull_reg()
             else:
-                setup_cls(df, target=target_col, session_id=123, verbose=False)
-                best_model = compare_cls()
+                setup_cls(df, target=target_col, session_id=123, verbose=False, use_gpu=False, n_jobs=1)
+                best_model = compare_cls(n_select=3)
                 results = pull_cls()
 
         st.success("✅ Uczenie zakończone! Oto wyniki:")
-        st.write("### 🏆 Ranking modeli:")
+        st.write("### 🏆 Ranking modeli (Top 3):")
         st.dataframe(results)
 
         st.write("### 🌟 Najlepszy model:")
