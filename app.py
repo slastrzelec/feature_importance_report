@@ -1,12 +1,13 @@
 import streamlit as st
 import pandas as pd
+from PIL import Image
 from sklearn.datasets import fetch_california_housing, load_iris
-from pycaret.regression import setup as setup_reg, compare_models as compare_reg, pull as pull_reg
-from pycaret.classification import setup as setup_cls, compare_models as compare_cls, pull as pull_cls
-import random
-import time
+from pycaret.regression import setup as setup_reg, compare_models as compare_reg, plot_model as plot_model_reg, pull as pull_reg
+from pycaret.classification import setup as setup_cls, compare_models as compare_cls, plot_model as plot_model_cls, pull as pull_cls
+import os
+import datetime
 
-# --- Lista ciekawostek o AI ---
+# --- Lista ciekawostek ---
 ai_facts = [
     "Sztuczna inteligencja jest używana w medycynie do diagnozowania chorób z obrazów medycznych.",
     "Pierwszy program szachowy został napisany już w latach 50-tych XX wieku.",
@@ -34,6 +35,8 @@ if 'df' not in st.session_state:
     st.session_state.df = pd.DataFrame()
 if 'dataset_name' not in st.session_state:
     st.session_state.dataset_name = ""
+if 'last_plot_path' not in st.session_state:
+    st.session_state.last_plot_path = None
 
 # --- Wczytanie danych ---
 if data_source == "Dane przykładowe (regresja)":
@@ -52,16 +55,8 @@ elif data_source == "Dane przykładowe (klasyfikacja)":
 elif data_source == "Wczytaj własny plik CSV":
     uploaded_file = st.sidebar.file_uploader("📂 Wybierz plik CSV", type="csv", key="file_uploader_key")
     if uploaded_file is not None:
-        sep_option = st.sidebar.selectbox(
-            "🧮 Wybierz separator (dla CSV):",
-            [",", ";", "Automatyczny (detekcja)"],
-            index=2
-        )
         try:
-            if sep_option == "Automatyczny (detekcja)":
-                st.session_state.df = pd.read_csv(uploaded_file, sep=None, engine='python')
-            else:
-                st.session_state.df = pd.read_csv(uploaded_file, sep=sep_option)
+            st.session_state.df = pd.read_csv(uploaded_file)
             st.session_state.dataset_name = uploaded_file.name
             st.write(f"Wczytano plik: **{uploaded_file.name}** ✅")
         except Exception as e:
@@ -70,7 +65,7 @@ elif data_source == "Wczytaj własny plik CSV":
     else:
         st.session_state.df = pd.DataFrame()
 
-# --- Podgląd danych i wybór kolumny docelowej ---
+# --- Podgląd danych ---
 df = st.session_state.df
 dataset_name = st.session_state.dataset_name
 
@@ -105,63 +100,66 @@ if not df.empty:
     st.write(f"🔹 Liczba unikalnych wartości: **{n_unique}**")
 
     # --- Automatyczny wybór modelu ---
-    if st.button("🚀 Uruchom automatyczny wybór najlepszego modelu", key="run_model_button"):
+    if st.button("🚀 Uruchom automatyczny wybór najlepszego modelu"):
+        import time, random
+
         status_container = st.empty()
         progress_bar = st.progress(0, text="Rozpoczynanie procesu...")
         facts_to_show = random.sample(ai_facts, k=min(len(ai_facts), 4))
-        num_steps = len(facts_to_show)
-
         for i, fact in enumerate(facts_to_show):
-            progress_value = int((i + 1) * 100 / (num_steps + 1))
-            progress_bar.progress(progress_value, text=f"Trwa przetwarzanie... ⏳ **Ciekawostka AI:** {fact}")
-            time.sleep(1.5)
+            progress_bar.progress(int((i + 1) * 100 / (len(facts_to_show) + 1)), text=f"⏳ {fact}")
+            time.sleep(1.2)
+        progress_bar.progress(100, text="Trwa uruchamianie modeli PyCaret...")
 
-        progress_bar.progress(100, text="Wszystko gotowe! Uruchamianie algorytmów PyCaret...")
-        progress_bar.empty()
-        status_container.empty()
+        with st.spinner("Porównywanie modeli..."):
+            try:
+                if problem_type == "regresja":
+                    setup_reg(df, target=target_col, session_id=123, verbose=False, use_gpu=False)
+                    best_model = compare_reg(n_select=1)
+                    pull_reg()
+                    plot_model_reg(best_model, plot="feature", save=True)
+                else:
+                    setup_cls(df, target=target_col, session_id=123, verbose=False, use_gpu=False)
+                    best_model = compare_cls(n_select=1)
+                    pull_cls()
+                    plot_model_cls(best_model, plot="feature", save=True)
 
-        start_time = time.time()
-        with st.spinner("Trwa porównywanie modeli PyCaret. Może to chwilę potrwać, dziękujemy za cierpliwość."):
-            if problem_type == "regresja":
-                try:
-                    setup_reg(df, target=target_col, session_id=123, verbose=False, use_gpu=False, n_jobs=1)
-                    best_model = compare_reg(n_select=3)
-                    results = pull_reg()
-                except Exception as e:
-                    st.error(f"Wystąpił błąd podczas trenowania regresji: {e}")
-                    results = pd.DataFrame()
-                    best_model = None
-            else:
-                try:
-                    setup_cls(df, target=target_col, session_id=123, verbose=False, use_gpu=False, n_jobs=1)
-                    best_model = compare_cls(n_select=3)
-                    results = pull_cls()
-                except Exception as e:
-                    st.error(f"Wystąpił błąd podczas trenowania klasyfikacji: {e}")
-                    results = pd.DataFrame()
-                    best_model = None
-        elapsed_time = time.time() - start_time
+                # --- Unikalna nazwa pliku wykresu ---
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                new_path = f"feature_importance_{timestamp}.png"
+                os.replace("Feature Importance.png", new_path)
+                st.session_state.last_plot_path = new_path
 
-        if not results.empty:
-            st.success(f"✅ Uczenie zakończone w {elapsed_time:.1f} sekundy!")
-            st.write("### 🏆 Ranking modeli (Top 3):")
-            st.dataframe(results.style.highlight_max(axis=0, color='yellow'))
-            st.write("### 🌟 Najlepszy model (pierwszy z listy):")
-            st.code(type(best_model[0]).__name__)
-        else:
-            st.warning("Nie udało się uzyskać wyników modeli. Sprawdź konsolę pod kątem błędów PyCaret.")
+                # --- Wyświetlenie ---
+                img = Image.open(new_path)
+                st.image(img, caption="🌟 Najważniejsze cechy modelu", use_column_width=True)
+                st.success("✅ Wykres został wygenerowany pomyślnie!")
+
+            except Exception as e:
+                st.error(f"Wystąpił błąd: {e}")
+
+    # --- Sekcja zapisu wykresu ---
+    if st.session_state.last_plot_path:
+        st.markdown("---")
+        st.subheader("💾 Zapis wykresu")
+
+        with open(st.session_state.last_plot_path, "rb") as file:
+            st.download_button(
+                label="📥 Pobierz wykres (PNG)",
+                data=file,
+                file_name=os.path.basename(st.session_state.last_plot_path),
+                mime="image/png"
+            )
+
 else:
     st.info("👉 Wybierz dane, aby kontynuować.")
 
 # --- Instrukcja ---
 st.sidebar.markdown("---")
-st.sidebar.markdown(
-    """
-    **Instrukcja:**
-    1. Wybierz dane (przykładowe lub własny plik CSV).
-    2. Wybierz kolumnę docelową (target) z listy po lewej.
-    3. Kliknij **Uruchom automatyczny wybór najlepszego modelu**.
-    
-    Aplikacja automatycznie rozpozna, czy jest to problem regresji (wartości ciągłe) czy klasyfikacji (wartości dyskretne), a następnie użyje biblioteki PyCaret do porównania kilkunastu modeli ML.
-    """
-)
+st.sidebar.markdown("""
+**Instrukcja:**
+1. Wybierz dane (przykładowe lub własny plik CSV).  
+2. Wybierz kolumnę docelową (target).  
+3. Kliknij **Uruchom automatyczny wybór najlepszego modelu**.  
+4. Po wygenerowaniu wykresu kliknij **📥 Pobierz wykres (PNG)**, aby go zapisać lokalnie.  
+""")
